@@ -27,13 +27,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract tag
+      - name: Extract metadata
         id: metadata
-        run: echo "tag=$(cat ${{ matrix.app }}/TAG)" >> "$GITHUB_OUTPUT"
+        run: echo "tag=ghcr.io/ushitora-anqou/ket-${{ matrix.app }}:$(cat ${{ matrix.app }}/TAG)" >> "$GITHUB_OUTPUT"
+
+      - name: Check if the image already exists
+        id: existence-check
+        run: |
+          docker manifest inspect ${{ steps.metadata.outputs.tag }}
+          echo "b=$?" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.app }}
           push: true
-          tags: ghcr.io/ushitora-anqou/ket-${{ matrix.app }}:${{ steps.metadata.outputs.tag }}
+          tags: ${{ steps.metadata.outputs.tag }}
+        if: ${{ steps.existence-check.outputs.b == '1' }}
