@@ -34,8 +34,11 @@ jobs:
       - name: Check if the image already exists
         id: existence-check
         run: |
-          docker manifest inspect ${{ steps.metadata.outputs.tag }}
-          echo "b=$?" >> "$GITHUB_OUTPUT"
+          if docker manifest inspect ${{ steps.metadata.outputs.tag }}; then
+            echo "b=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "b=1" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
