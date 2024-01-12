@@ -35,9 +35,9 @@ ARG SUDACHI_DICT_VERSION
 COPY --from=build \
     /elasticsearch-sudachi/build/distributions/elasticsearch-${ES_VERSION}-analysis-sudachi-${ES_SUDACHI_VERSION}.zip \
     /analysis-sudachi.zip
-COPY --from=build /system_core.dic sudachi/system_core.dic
+COPY --from=build /system_core.dic config/sudachi/system_core.dic
 RUN <<EOS
-cat <<EOF > sudachi/sudachi.json
+cat <<EOF > config/sudachi/sudachi.json
 {
     "systemDict" : "system_core.dic",
     "characterDefinitionFile": "char.def",
@@ -77,4 +77,6 @@ cat <<EOF > sudachi/sudachi.json
 }
 EOF
 EOS
-RUN elasticsearch-plugin install file:///analysis-sudachi.zip
+RUN mkdir -p /etc/elasticsearch/sudachi && \
+    cp -r config/sudachi /etc/elasticsearch/ && \
+    elasticsearch-plugin install file:///analysis-sudachi.zip
