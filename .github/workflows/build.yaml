@@ -6,7 +6,7 @@ jobs:
   build-and-push-image:
     strategy:
       matrix:
-        app: [elasticsearch, toolbox]
+        app: [elasticsearch, toolbox, mastodon]
 
     runs-on: ubuntu-latest
 
