@@ -35,5 +35,46 @@ ARG SUDACHI_DICT_VERSION
 COPY --from=build \
     /elasticsearch-sudachi/build/distributions/elasticsearch-${ES_VERSION}-analysis-sudachi-${ES_SUDACHI_VERSION}.zip \
     /analysis-sudachi.zip
-COPY --from=build /system_core.dic config/sudachi/system_core.dic
+COPY --from=build /system_core.dic sudachi/system_core.dic
+RUN <<EOS
+cat <<EOF > sudachi/sudachi.json
+{
+    "systemDict" : "system_core.dic",
+    "characterDefinitionFile": "char.def",
+    "inputTextPlugin" : [
+        { "class" : "com.worksap.nlp.sudachi.DefaultInputTextPlugin" },
+        { "class" : "com.worksap.nlp.sudachi.ProlongedSoundMarkInputTextPlugin",
+          "prolongedSoundMarks": ["ー", "-", "⁓", "〜", "〰"],
+          "replacementSymbol": "ー"},
+	      { "class": "com.worksap.nlp.sudachi.IgnoreYomiganaPlugin",
+          "leftBrackets": ["(", "（"],
+          "rightBrackets": [")", "）"],
+          "maxYomiganaLength": 4}
+    ],
+    "oovProviderPlugin" : [
+        { "class" : "com.worksap.nlp.sudachi.MeCabOovProviderPlugin" },
+        { "class" : "com.worksap.nlp.sudachi.SimpleOovProviderPlugin",
+          "oovPOS" : [ "補助記号", "一般", "*", "*", "*", "*" ],
+          "leftId" : 5968,
+          "rightId" : 5968,
+          "cost" : 3857 }
+    ],
+    "pathRewritePlugin" : [
+        { "class" : "com.worksap.nlp.sudachi.JoinNumericPlugin",
+          "joinKanjiNumeric" : true },
+        { "class" : "com.worksap.nlp.sudachi.JoinKatakanaOovPlugin",
+          "oovPOS" : [ "名詞", "普通名詞", "一般", "*", "*", "*" ],
+          "minLength" : 3
+        }
+    ],
+    "formatterPlugin" : [
+      { "class" : "com.worksap.nlp.sudachi.SimpleMorphemeFormatter" },
+      { "class" : "com.worksap.nlp.sudachi.WordSegmentationFormatter",
+        "eos" : "\n" },
+      { "class" : "com.worksap.nlp.sudachi.WordSegmentationFormatter",
+        "eos" :  " " }
+    ]
+}
+EOF
+EOS
 RUN elasticsearch-plugin install file:///analysis-sudachi.zip
