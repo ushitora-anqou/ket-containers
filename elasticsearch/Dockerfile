@@ -18,9 +18,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Build elasticsearch-sudachi
-RUN git clone https://github.com/WorksApplications/elasticsearch-sudachi.git
+RUN git clone https://github.com/ushitora-anqou/elasticsearch-sudachi.git
 WORKDIR /elasticsearch-sudachi
-RUN git checkout v${ES_SUDACHI_VERSION} && \
+RUN git checkout realdev && \
     ./gradlew -PengineVersion=es:${ES_VERSION} build -x test
 
 # Download sudachi-dictionary, sudachi.json, and char.def
@@ -37,9 +37,7 @@ ARG ES_SUDACHI_VERSION
 
 # Install elasticsearch-sudachi and system_core.dic
 COPY --from=build \
-    /elasticsearch-sudachi/build/distributions/elasticsearch-${ES_VERSION}-analysis-sudachi-${ES_SUDACHI_VERSION}.zip \
+    /elasticsearch-sudachi/build/distributions/elasticsearch-*-analysis-sudachi-*.zip \
     /analysis-sudachi.zip
 COPY --from=build /system_core.dic /sudachi.json /char.def config/sudachi/
-RUN mkdir -p /etc/elasticsearch && \
-    cp -r config/sudachi /etc/elasticsearch/sudachi && \
-    elasticsearch-plugin install file:///analysis-sudachi.zip
+RUN elasticsearch-plugin install file:///analysis-sudachi.zip
