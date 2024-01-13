@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y git
 WORKDIR /
 RUN git clone https://github.com/ushitora-anqou/mastodon.git && \
     cd mastodon && \
-    git checkout develop
+    git checkout develop-ket
 
 FROM ghcr.io/moritzheiber/ruby-jemalloc:3.2.2-slim as ruby
 FROM node:${NODE_VERSION} as build
