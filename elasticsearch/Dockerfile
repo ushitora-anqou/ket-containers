@@ -41,3 +41,6 @@ COPY --from=build \
     /analysis-sudachi.zip
 COPY --from=build /system_core.dic /sudachi.json /char.def config/sudachi/
 RUN elasticsearch-plugin install file:///analysis-sudachi.zip
+
+# Install analysis-icu
+RUN elasticsearch-plugin install analysis-icu
