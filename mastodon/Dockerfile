@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y git
 WORKDIR /
 RUN git clone https://github.com/ushitora-anqou/mastodon.git && \
     cd mastodon && \
-    git checkout 4.2.3.4
+    git checkout 4.2.4.1
 
-FROM ghcr.io/moritzheiber/ruby-jemalloc:3.2.2-slim as ruby
+FROM ghcr.io/moritzheiber/ruby-jemalloc:3.2.3-slim as ruby
 FROM node:${NODE_VERSION} as build
 
 COPY --link --from=ruby /opt/ruby /opt/ruby
@@ -112,4 +112,3 @@ RUN OTP_SECRET=precompile_placeholder SECRET_KEY_BASE=precompile_placeholder rai
 # Set the work dir and the container entry point
 ENTRYPOINT ["/usr/bin/tini", "--"]
 EXPOSE 3000 4000
-
