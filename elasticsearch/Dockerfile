@@ -44,3 +44,5 @@ RUN elasticsearch-plugin install file:///analysis-sudachi.zip
 
 # Install analysis-icu
 RUN elasticsearch-plugin install analysis-icu
+
+USER elasticsearch:root
