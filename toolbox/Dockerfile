@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND noniteractive
 
 RUN apt-get update && \
-    apt-get install -y wget gnupg curl inetutils-ping awscli && \
+    apt-get install -y wget gnupg curl inetutils-ping awscli jq && \
     sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.list.d/pgdg.list' && \
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
     apt-get update && \
