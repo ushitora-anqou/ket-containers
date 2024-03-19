@@ -6,7 +6,7 @@ jobs:
   build-and-push-image:
     strategy:
       matrix:
-        app: [elasticsearch, toolbox, mastodon, alertmanager-discord]
+        app: [elasticsearch, toolbox, mastodon, alertmanager-discord, yorksap-frontend]
 
     runs-on: ubuntu-latest
 
