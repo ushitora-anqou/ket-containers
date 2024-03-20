@@ -5,9 +5,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apk update && \
     apk add git && \
     rm -rf /var/lib/apt/lists/* && \
-    git clone https://github.com/uta8a/yorksap-frontend-wip3.git src && \
+    git clone https://github.com/ushitora-anqou/yorksap-frontend-wip3.git src && \
     cd src && \
-    git checkout c4002d0d0779de424f398b682b9f539b74bc754f
+    git checkout c138b564ba7a7debf4f6536cdb6f3e60b65c2078
 
 # ref. Next.js Official Build Guide: https://github.com/vercel/next.js/tree/df14fdfa259eaf1062f0b97942a1645ee9671487/examples/with-docker
 FROM node:20-alpine AS base
@@ -24,7 +24,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=src /src/ ./
 
-RUN ls -la  && npm run build
+RUN env NEXT_PUBLIC_RECAPTCHA_CLIENT_KEY=6LfKCp8pAAAAAI4uNeDVVWKgqr9Tmca8PN5eguCt npm run build
 
 FROM base AS runner
 WORKDIR /app
