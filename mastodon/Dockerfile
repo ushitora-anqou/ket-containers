@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1.4
 # This needs to be bookworm-slim because the Ruby image is built on bookworm-slim
 ARG NODE_VERSION="20.6-bookworm-slim"
-ARG SOURCE_TAG="4.2.9.2"
 
 FROM ubuntu:22.04 as src
 
@@ -10,7 +9,8 @@ RUN apt-get update && apt-get install -y git
 WORKDIR /
 RUN git clone https://github.com/ushitora-anqou/mastodon.git && \
     cd mastodon && \
-    git checkout ${SOURCE_TAG}
+    git checkout 4.2.9.3
+    # !!! CHANGE SOURCE_TAG TOO !!!
 
 FROM ghcr.io/moritzheiber/ruby-jemalloc:3.2.3-slim as ruby
 FROM node:${NODE_VERSION} as build
@@ -103,8 +103,8 @@ ENV RAILS_ENV="production" \
     MASTODON_VERSION_PRERELEASE="${MASTODON_VERSION_PRERELEASE}" \
     MASTODON_VERSION_METADATA="${MASTODON_VERSION_METADATA}" \
     GITHUB_REPOSITORY="ushitora-anqou/mastodon" \
-    SOURCE_BASE_URL="https://github.com/ushitora-anqou/mastodon" \
-    SOURCE_TAG=${SOURCE_TAG}
+    SOURCE_BASE_URL=https://github.com/ushitora-anqou/mastodon \
+    SOURCE_TAG=4.2.9.3
 
 
 # Set the run user
