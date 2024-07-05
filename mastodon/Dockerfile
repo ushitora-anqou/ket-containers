@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y git
 WORKDIR /
 RUN git clone https://github.com/ushitora-anqou/mastodon.git && \
     cd mastodon && \
-    git checkout 4.2.9.3
+    git checkout 4.2.10.1
     # !!! CHANGE SOURCE_TAG TOO !!!
 
 FROM ghcr.io/moritzheiber/ruby-jemalloc:3.2.3-slim as ruby
@@ -104,7 +104,7 @@ ENV RAILS_ENV="production" \
     MASTODON_VERSION_METADATA="${MASTODON_VERSION_METADATA}" \
     GITHUB_REPOSITORY="ushitora-anqou/mastodon" \
     SOURCE_BASE_URL=https://github.com/ushitora-anqou/mastodon \
-    SOURCE_TAG=4.2.9.3
+    SOURCE_TAG=4.2.10.1
 
 
 # Set the run user
