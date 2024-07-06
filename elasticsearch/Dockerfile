@@ -1,8 +1,10 @@
-ARG ES_VERSION=7.17.16
-ARG ES_SUDACHI_VERSION=3.1.0
-ARG SUDACHI_DICT_VERSION=20230927
+ARG ES_VERSION=7.17.22
+ARG ES_SUDACHI_VERSION=3.2.2
+# https://github.com/WorksApplications/SudachiDict/releases
+ARG SUDACHI_DICT_VERSION=20240409
 # SUDACHI_VERSION is used only for downloading sudachi.json and char.def
-ARG SUDACHI_VERSION=0.7.3
+# https://github.com/WorksApplications/Sudachi/releases
+ARG SUDACHI_VERSION=0.7.4
 
 FROM eclipse-temurin:17 AS build
 ARG ES_VERSION
