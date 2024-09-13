@@ -22,9 +22,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Build elasticsearch-sudachi
-RUN git clone https://github.com/ushitora-anqou/elasticsearch-sudachi.git
+RUN git clone https://github.com/WorksApplications/elasticsearch-sudachi.git
 WORKDIR /elasticsearch-sudachi
-RUN git checkout realdev && \
+RUN git checkout v${ES_SUDACHI_VERSION} && \
     ./gradlew -PengineVersion=es:${ES_VERSION} build -x test
 
 # Download sudachi-dictionary, sudachi.json, and char.def
@@ -36,8 +36,6 @@ RUN curl -L -o dic.zip https://github.com/WorksApplications/SudachiDict/releases
     curl https://raw.githubusercontent.com/WorksApplications/Sudachi/v${SUDACHI_VERSION}/src/main/resources/char.def > /char.def
 
 FROM elasticsearch:${ES_VERSION}
-ARG ES_VERSION
-ARG ES_SUDACHI_VERSION
 
 # Install elasticsearch-sudachi and system_core.dic
 COPY --from=build \
