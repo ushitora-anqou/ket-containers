@@ -18,4 +18,9 @@ RUN wget https://github.com/aquaproj/aqua/releases/download/v2.35.0/aqua_linux_a
 
 USER 1000
 
+WORKDIR /workdir
+
+ENV HOME=/workdir
+ENV PATH=${PATH}:${HOME}/.local/share/aquaproj-aqua/bin
+
 CMD ["sleep", "infinity"]
