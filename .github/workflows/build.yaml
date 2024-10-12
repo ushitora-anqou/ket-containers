@@ -10,7 +10,6 @@ jobs:
           [
             elasticsearch,
             toolbox,
-            mastodon,
             alertmanager-discord,
             yorksap-frontend,
             rsyncd,
