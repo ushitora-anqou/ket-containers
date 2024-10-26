@@ -10,7 +10,7 @@ RUN git clone https://github.com/ushitora-anqou/factorio-notify-bot2.git && \
 FROM debian:bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y ca-certificates && \
+    apt-get install -y ca-certificates curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
