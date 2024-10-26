@@ -13,6 +13,7 @@ jobs:
             alertmanager-discord,
             yorksap-frontend,
             rsyncd,
+            factorio-workspace,
           ]
 
     runs-on: ubuntu-latest
