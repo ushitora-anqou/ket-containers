@@ -22,6 +22,14 @@ RUN chmod +x /usr/local/bin/kubectl
 ADD https://github.com/krallin/tini/releases/download/v0.19.0/tini /usr/local/bin/tini
 RUN chmod +x /usr/local/bin/tini
 
+WORKDIR /
+ENV RCON_VERSION=0.10.3
+ADD https://github.com/gorcon/rcon-cli/releases/download/v${RCON_VERSION}/rcon-${RCON_VERSION}-amd64_linux.tar.gz /rcon-${RCON_VERSION}-amd64_linux.tar.gz
+RUN tar xf rcon-${RCON_VERSION}-amd64_linux.tar.gz && \
+    cp -a rcon-${RCON_VERSION}-amd64_linux/rcon /usr/local/bin/rcon && \
+    rm rcon-${RCON_VERSION}-amd64_linux.tar.gz && \
+    rm -rf rcon-${RCON_VERSION}-amd64_linux
+
 USER 1000
 
 WORKDIR /workdir
