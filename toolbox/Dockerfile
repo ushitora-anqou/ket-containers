@@ -16,8 +16,11 @@ RUN wget https://github.com/aquaproj/aqua/releases/download/v2.35.0/aqua_linux_a
     tar xf aqua_linux_amd64.tar.gz -C aqua && \
     cp -a aqua/aqua /usr/local/bin/
 
-RUN wget -O /usr/local/bin/kubectl https://dl.k8s.io/v1.31.2/bin/linux/amd64/kubectl && \
-    chmod +x /usr/local/bin/kubectl
+ADD https://dl.k8s.io/v1.31.2/bin/linux/amd64/kubectl /usr/local/bin/kubectl
+RUN chmod +x /usr/local/bin/kubectl
+
+ADD https://github.com/krallin/tini/releases/download/v0.19.0/tini /usr/local/bin/tini
+RUN chmod +x /usr/local/bin/tini
 
 USER 1000
 
