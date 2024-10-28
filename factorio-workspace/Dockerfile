@@ -4,7 +4,7 @@ WORKDIR /
 
 RUN git clone https://github.com/ushitora-anqou/factorio-notify-bot2.git && \
     cd factorio-notify-bot2 && \
-    git checkout 0.1.1 && \
+    git checkout 0.1.2 && \
     CGO_ENABLED=0 go build -o factorio-notify-bot2 main.go
 
 FROM debian:bookworm-slim
