@@ -12,7 +12,7 @@ ARG RCON_VERSION=0.10.3
 ENV DEBIAN_FRONTEND=noniteractive
 
 RUN apt-get update && \
-    apt-get install -y make wget gnupg curl inetutils-ping awscli jq dnsutils backblaze-b2 && \
+    apt-get install -y make wget gnupg curl inetutils-ping awscli jq dnsutils backblaze-b2 trickle && \
     sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.list.d/pgdg.list' && \
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
     apt-get update && \
