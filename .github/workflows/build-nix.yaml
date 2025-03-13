@@ -44,12 +44,6 @@ jobs:
       contents: read
       packages: write
 
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -90,32 +84,9 @@ jobs:
           fi
 
       - if: ${{ steps.existence-check.outputs.b == '1' }}
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: network=host
-
-      - if: ${{ steps.existence-check.outputs.b == '1' }}
-        name: Build a Docker image
+        name: Build and push a Docker image
         run: |
           cd nix
           nix build .#${{ matrix.package }}
           docker load -i result
-
-      - if: ${{ steps.existence-check.outputs.b == '1' }}
-        name: Prepare stuff necessary to build and push the final image
-        run: |
-          docker tag ${{ steps.metadata.outputs.tag }} localhost:5000/image:dev
-          docker push localhost:5000/image:dev
-          mkdir ci
-          echo "FROM builder" > ci/Dockerfile
-
-      - if: ${{ steps.existence-check.outputs.b == '1' }}
-        name: Build and push the final image
-        uses: docker/build-push-action@v6
-        with:
-          context: ci
-          build-contexts: |
-            builder=docker-image://localhost:5000/image:dev
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.metadata.outputs.tag }}
+          docker push ${{ steps.metadata.outputs.tag }}
