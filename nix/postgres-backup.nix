@@ -7,11 +7,12 @@
   iana-etc,
   postgresql_17,
   runtimeShell,
+  zstd,
   ...
 }:
 dockerTools.buildLayeredImage {
   name = "ghcr.io/ushitora-anqou/ket-postgres-backup";
-  tag = "0.1.1";
+  tag = "0.1.2";
   created = "now";
   extraCommands = "mkdir -m 1777 tmp";
   contents = [
@@ -19,6 +20,7 @@ dockerTools.buildLayeredImage {
     busybox
     iana-etc
     postgresql_17
+    zstd
     (callPackage ./trickle.nix {})
   ];
   fakeRootCommands = ''
@@ -27,6 +29,7 @@ dockerTools.buildLayeredImage {
     ${dockerTools.shadowSetup}
     mkdir /workdir
     chown 1000:1000 /workdir
+    chmod 777 /workdir
   '';
   enableFakechroot = true;
   config = {
