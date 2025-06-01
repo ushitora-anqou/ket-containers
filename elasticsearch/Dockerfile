@@ -1,9 +1,9 @@
 # https://hub.docker.com/_/elasticsearch
-ARG ES_VERSION=7.17.25
+ARG ES_VERSION=7.17.28
 # https://github.com/WorksApplications/elasticsearch-sudachi/releases
 ARG ES_SUDACHI_VERSION=3.3.0
 # https://github.com/WorksApplications/SudachiDict/releases
-ARG SUDACHI_DICT_VERSION=20241021
+ARG SUDACHI_DICT_VERSION=20250515
 # SUDACHI_VERSION is used only for downloading sudachi.json and char.def
 # https://github.com/WorksApplications/Sudachi/releases
 ARG SUDACHI_VERSION=0.7.5
