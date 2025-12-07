@@ -12,7 +12,7 @@
 }:
 dockerTools.buildLayeredImage {
   name = "ghcr.io/ushitora-anqou/ket-postgres-backup";
-  tag = "0.1.3";
+  tag = "0.1.4";
   created = "now";
   extraCommands = "mkdir -m 1777 tmp";
   contents = [
