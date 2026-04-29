@@ -90,3 +90,9 @@ jobs:
           nix build .#${{ matrix.package }}
           docker load -i result
           docker push ${{ steps.metadata.outputs.tag }}
+
+      - if: ${{ steps.existence-check.outputs.b == '0' }}
+        name: Build a Docker image but don't push
+        run: |
+          cd nix
+          nix build .#${{ matrix.package }}
