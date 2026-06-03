@@ -5,8 +5,9 @@
   callPackage,
   dockerTools,
   iana-etc,
-  postgresql_17,
+  postgresql_18,
   runtimeShell,
+  trickle,
   zstd,
   ...
 }:
@@ -19,9 +20,9 @@ dockerTools.buildLayeredImage {
     backblaze-b2
     busybox
     iana-etc
-    postgresql_17
+    postgresql_18
     zstd
-    (callPackage ./trickle.nix {})
+    trickle
   ];
   fakeRootCommands = ''
     #!${runtimeShell}
