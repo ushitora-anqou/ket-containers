@@ -5,23 +5,24 @@
   callPackage,
   dockerTools,
   iana-etc,
-  postgresql_17,
+  postgresql_18,
   runtimeShell,
+  trickle,
   zstd,
   ...
 }:
 dockerTools.buildLayeredImage {
   name = "ghcr.io/ushitora-anqou/ket-postgres-backup";
-  tag = "0.1.4";
+  tag = "0.1.5";
   created = "now";
   extraCommands = "mkdir -m 1777 tmp";
   contents = [
     backblaze-b2
     busybox
     iana-etc
-    postgresql_17
+    postgresql_18
     zstd
-    (callPackage ./trickle.nix {})
+    trickle
   ];
   fakeRootCommands = ''
     #!${runtimeShell}
