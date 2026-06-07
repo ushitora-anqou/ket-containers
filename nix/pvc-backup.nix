@@ -2,6 +2,7 @@
   backblaze-b2,
   busybox,
   cacert,
+  callPackage,
   dockerTools,
   iana-etc,
   kubernetes,
@@ -12,16 +13,17 @@
 }:
 dockerTools.buildLayeredImage {
   name = "ghcr.io/ushitora-anqou/ket-pvc-backup";
-  tag = "0.1.1";
+  tag = "0.1.2";
   created = "now";
   extraCommands = "mkdir -m 1777 tmp";
   contents = [
     backblaze-b2
     busybox
     iana-etc
-    kubernetes.pause
     trickle
     zstd
+
+    (callPackage ./pause.nix {})
   ];
   fakeRootCommands = ''
     #!${runtimeShell}
