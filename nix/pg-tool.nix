@@ -1,9 +1,9 @@
 {
   backblaze-b2,
   busybox,
-  callPackage,
   dockerTools,
   iana-etc,
+  kubernetes,
   postgresql_18,
   runtimeShell,
   trickle,
@@ -12,14 +12,14 @@
 }:
 dockerTools.buildLayeredImage {
   name = "ghcr.io/ushitora-anqou/ket-pg-tool";
-  tag = "0.1.0";
+  tag = "0.1.1";
   created = "now";
   extraCommands = "mkdir -m 1777 tmp";
   contents = [
     busybox
     iana-etc
+    kubernetes.pause
     postgresql_18
-    (callPackage ./pause.nix {})
   ];
   fakeRootCommands = ''
     #!${runtimeShell}
