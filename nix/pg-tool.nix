@@ -1,7 +1,6 @@
 {
   backblaze-b2,
   busybox,
-  cacert,
   callPackage,
   dockerTools,
   iana-etc,
@@ -12,17 +11,15 @@
   ...
 }:
 dockerTools.buildLayeredImage {
-  name = "ghcr.io/ushitora-anqou/ket-postgres-backup";
-  tag = "0.1.5";
+  name = "ghcr.io/ushitora-anqou/ket-pg-tool";
+  tag = "0.1.0";
   created = "now";
   extraCommands = "mkdir -m 1777 tmp";
   contents = [
-    backblaze-b2
     busybox
     iana-etc
     postgresql_18
-    zstd
-    trickle
+    (callPackage ./pause.nix {})
   ];
   fakeRootCommands = ''
     #!${runtimeShell}
@@ -34,10 +31,9 @@ dockerTools.buildLayeredImage {
   '';
   enableFakechroot = true;
   config = {
-    Entrypoint = ["sleep" "infinity"];
+    Entrypoint = ["pause"];
     User = "1000:1000";
     Env = [
-      "SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt"
       "HOME=/workdir"
     ];
     WorkingDir = "/workdir";

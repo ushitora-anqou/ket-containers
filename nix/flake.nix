@@ -14,7 +14,8 @@
     formatter.x86_64-linux = pkgs.alejandra;
 
     packages.x86_64-linux = {
-      postgres-backup = pkgs.callPackage ./postgres-backup.nix {};
+      pvc-backup = pkgs.callPackage ./pvc-backup.nix {};
+      pg-tool = pkgs.callPackage ./pg-tool.nix {};
     };
   };
 }
