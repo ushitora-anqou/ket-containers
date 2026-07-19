@@ -139,6 +139,10 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          # Pinned to v0.31.0: docker/buildx#3708 — push-by-digest + imagetools create
+          # are broken on GHCR since v0.31.1.
+          version: v0.31.0
 
       - name: Build and push by digest
         id: build
@@ -186,6 +190,8 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          version: v0.31.0
 
       - name: Build and push by digest
         id: build
@@ -229,6 +235,8 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          version: v0.31.0
 
       - name: Merge multi-arch manifest
         shell: bash
