@@ -78,8 +78,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # "linux/amd64,linux/arm64" -> ["linux/amd64","linux/arm64"]
-          json="$(printf '%s' "$PLATFORMS" | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$"; "")))')"
+          # "linux/amd64, linux/arm64" -> ["linux/amd64","linux/arm64"]
+          # (splits on comma + optional surrounding spaces; avoids \s for jq portability)
+          json="$(printf '%s' "$PLATFORMS" | jq -R -c '[splits(", *")]')"
           echo "json=${json}" >> "$GITHUB_OUTPUT"
 
       - name: Existence check (tag present?)
