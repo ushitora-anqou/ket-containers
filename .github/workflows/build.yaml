@@ -6,16 +6,21 @@ jobs:
   build-and-push-image:
     strategy:
       matrix:
-        app:
-          [
-            elasticsearch,
-            toolbox,
-            alertmanager-discord,
-            yorksap-frontend,
-            rsyncd,
-            factorio-workspace,
-            dawarich,
-          ]
+        include:
+          - app: elasticsearch
+            platforms: linux/amd64,linux/arm64
+          - app: toolbox
+            platforms: linux/amd64
+          - app: alertmanager-discord
+            platforms: linux/amd64
+          - app: yorksap-frontend
+            platforms: linux/amd64
+          - app: rsyncd
+            platforms: linux/amd64
+          - app: factorio-workspace
+            platforms: linux/amd64
+          - app: dawarich
+            platforms: linux/amd64
 
     runs-on: ubuntu-latest
 
@@ -49,9 +54,18 @@ jobs:
             echo "b=1" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        if: ${{ steps.existence-check.outputs.b == '1' }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        if: ${{ steps.existence-check.outputs.b == '1' }}
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
+          platforms: ${{ matrix.platforms }}
           context: ${{ matrix.app }}
           push: true
           tags: ${{ steps.metadata.outputs.tag }}
