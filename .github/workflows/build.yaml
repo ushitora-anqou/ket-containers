@@ -118,14 +118,17 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────────────────────────────
-  # elasticsearch: amd64 build (native, pushed under an arch-specific tag).
-  # The final multi-arch tag is only created by the merge job, so a partial tag
-  # can never exist mid-build.
+  # elasticsearch: amd64 build (native, pushed by digest only — no tag yet).
+  # NOTE: push-by-digest requires an explicit push=true in the image exporter,
+  # otherwise buildx never pushes (only exports locally). See:
+  # https://zenn.dev/cybozu_ept/articles/build-multi-platform-image-with-arm64-runner
   # ──────────────────────────────────────────────────────────────────────────
   elasticsearch-build-amd64:
     needs: elasticsearch-check
     if: needs.elasticsearch-check.outputs.should_build == '1'
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -140,14 +143,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push arch-specific tag
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: elasticsearch
           platforms: linux/amd64
           provenance: false
-          push: true
-          tags: ${{ needs.elasticsearch-check.outputs.tag }}-amd64
+          outputs: type=image,name=ghcr.io/ushitora-anqou/ket-elasticsearch,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Verify digest
+        shell: bash
+        run: |
+          digest="${{ steps.build.outputs.digest }}"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "::error::No digest produced"
+            exit 1
+          fi
+          echo "Pushed amd64 digest: $digest" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ──────────────────────────────────────────────────────────────────────────
   # elasticsearch: arm64 build (native arm64 runner, no QEMU).
@@ -156,6 +169,8 @@ jobs:
     needs: elasticsearch-check
     if: needs.elasticsearch-check.outputs.should_build == '1'
     runs-on: ubuntu-26.04-arm
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -170,14 +185,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push arch-specific tag
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: elasticsearch
           platforms: linux/arm64
           provenance: false
-          push: true
-          tags: ${{ needs.elasticsearch-check.outputs.tag }}-arm64
+          outputs: type=image,name=ghcr.io/ushitora-anqou/ket-elasticsearch,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Verify digest
+        shell: bash
+        run: |
+          digest="${{ steps.build.outputs.digest }}"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "::error::No digest produced"
+            exit 1
+          fi
+          echo "Pushed arm64 digest: $digest" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ──────────────────────────────────────────────────────────────────────────
   # elasticsearch: merge both arches into a single multi-arch tag (atomic).
@@ -206,12 +231,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          repo="ghcr.io/ushitora-anqou/ket-elasticsearch"
           tag="${{ needs.elasticsearch-check.outputs.tag }}"
-          echo "Merging ${tag}-amd64 + ${tag}-arm64 -> ${tag}" | tee -a "$GITHUB_STEP_SUMMARY"
+          amd64_digest="${{ needs.elasticsearch-build-amd64.outputs.digest }}"
+          arm64_digest="${{ needs.elasticsearch-build-arm64.outputs.digest }}"
+          echo "Merging amd64=${amd64_digest} arm64=${arm64_digest} -> ${tag}" | tee -a "$GITHUB_STEP_SUMMARY"
           docker buildx imagetools create \
             -t "${tag}" \
-            "${tag}-amd64" \
-            "${tag}-arm64"
+            "${repo}@${amd64_digest}" \
+            "${repo}@${arm64_digest}"
 
       - name: Verify merged manifest
         shell: bash
