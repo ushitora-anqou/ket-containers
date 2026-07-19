@@ -2,13 +2,19 @@ name: Publish Docker image to ghcr.io
 
 on: push
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # amd64-only apps (matrix). elasticsearch moved to the dedicated jobs below.
+  # QEMU is no longer needed: every remaining app is linux/amd64 on an amd64 runner.
+  # ──────────────────────────────────────────────────────────────────────────
   build-and-push-image:
     strategy:
       matrix:
         include:
-          - app: elasticsearch
-            platforms: linux/amd64,linux/arm64
           - app: toolbox
             platforms: linux/amd64
           - app: alertmanager-discord
@@ -23,10 +29,6 @@ jobs:
             platforms: linux/amd64
 
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
 
     steps:
       - name: Checkout repository
@@ -54,10 +56,6 @@ jobs:
             echo "b=1" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-        if: ${{ steps.existence-check.outputs.b == '1' }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
         if: ${{ steps.existence-check.outputs.b == '1' }}
@@ -69,4 +67,185 @@ jobs:
           context: ${{ matrix.app }}
           push: true
           tags: ${{ steps.metadata.outputs.tag }}
+          provenance: false
         if: ${{ steps.existence-check.outputs.b == '1' }}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # elasticsearch: existence check (gate).
+  # Require BOTH linux/amd64 and linux/arm64 to be present so a partial image
+  # (e.g. only one arch pushed after a crashed run) is never treated as complete.
+  # ──────────────────────────────────────────────────────────────────────────
+  elasticsearch-check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      should_build: ${{ steps.existence-check.outputs.b }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: metadata
+        run: echo "tag=ghcr.io/ushitora-anqou/ket-elasticsearch:$(cat elasticsearch/TAG)" >> "$GITHUB_OUTPUT"
+
+      - name: Check if the multi-arch image already exists
+        id: existence-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.metadata.outputs.tag }}"
+          if ! manifest_json="$(docker manifest inspect "$tag" 2>/dev/null)"; then
+            echo "Tag not found; will build." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "b=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          has_amd64="$(printf '%s' "$manifest_json" | jq -r '[.manifests[]?.platform.architecture] | any(. == "amd64")')"
+          has_arm64="$(printf '%s' "$manifest_json" | jq -r '[.manifests[]?.platform.architecture] | any(. == "arm64")')"
+          echo "Existing image architectures: amd64=$has_amd64 arm64=$has_arm64" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$has_amd64" = "true" ] && [ "$has_arm64" = "true" ]; then
+            echo "Both architectures present; skipping build." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "b=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "Partial image detected; rebuilding." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "b=1" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # elasticsearch: amd64 build (native, pushed by digest only — no tag yet).
+  # ──────────────────────────────────────────────────────────────────────────
+  elasticsearch-build-amd64:
+    needs: elasticsearch-check
+    if: needs.elasticsearch-check.outputs.should_build == '1'
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: elasticsearch
+          platforms: linux/amd64
+          provenance: false
+          outputs: type=image,name=ghcr.io/ushitora-anqou/ket-elasticsearch,push-by-digest=true
+
+      - name: Export digest
+        id: digest
+        shell: bash
+        env:
+          METADATA: ${{ steps.build.outputs.metadata }}
+        run: |
+          set -euo pipefail
+          digest="$(printf '%s' "$METADATA" | jq -r '."containerimage.digest" // empty')"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "::error::containerimage.digest not found in build metadata"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Pushed amd64 digest: $digest" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # elasticsearch: arm64 build (native arm64 runner, no QEMU).
+  # ──────────────────────────────────────────────────────────────────────────
+  elasticsearch-build-arm64:
+    needs: elasticsearch-check
+    if: needs.elasticsearch-check.outputs.should_build == '1'
+    runs-on: ubuntu-26.04-arm
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: elasticsearch
+          platforms: linux/arm64
+          provenance: false
+          outputs: type=image,name=ghcr.io/ushitora-anqou/ket-elasticsearch,push-by-digest=true
+
+      - name: Export digest
+        id: digest
+        shell: bash
+        env:
+          METADATA: ${{ steps.build.outputs.metadata }}
+        run: |
+          set -euo pipefail
+          digest="$(printf '%s' "$METADATA" | jq -r '."containerimage.digest" // empty')"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "::error::containerimage.digest not found in build metadata"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Pushed arm64 digest: $digest" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # elasticsearch: merge both arches into a single multi-arch tag (atomic).
+  # The tag is created here, so a partial tag can never exist mid-build.
+  # ──────────────────────────────────────────────────────────────────────────
+  elasticsearch-merge:
+    needs: [elasticsearch-check, elasticsearch-build-amd64, elasticsearch-build-arm64]
+    if: needs.elasticsearch-check.outputs.should_build == '1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Merge multi-arch manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="ghcr.io/ushitora-anqou/ket-elasticsearch"
+          tag="${{ needs.elasticsearch-check.outputs.tag }}"
+          amd64_digest="${{ needs.elasticsearch-build-amd64.outputs.digest }}"
+          arm64_digest="${{ needs.elasticsearch-build-arm64.outputs.digest }}"
+          echo "Merging amd64=${amd64_digest} arm64=${arm64_digest} -> ${tag}" | tee -a "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools create \
+            -t "${tag}" \
+            "${repo}@${amd64_digest}" \
+            "${repo}@${arm64_digest}"
+
+      - name: Verify merged manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${{ needs.elasticsearch-check.outputs.tag }}"
