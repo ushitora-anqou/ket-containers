@@ -1,0 +1,222 @@
+# Reusable workflow: build a single app and push a (multi-arch) image to GHCR.
+#
+# Flow:  check (gate)  ->  build (matrix per platform, push-by-digest)  ->  merge (imagetools create)
+#
+# Caller passes:
+#   app:        directory name (also used as image suffix and build context)
+#   platforms:  comma-separated string, e.g. "linux/amd64,linux/arm64"
+#
+# Conventions:
+#   - image:   ghcr.io/<owner>/ket-<app>:<TAG file content>
+#   - digest:  pushed by digest only (no tag); the final tag is created atomically
+#               by the merge job, so a partial tag can never exist mid-build.
+#   - buildx:  pinned to v0.31.0 in merge (docker/buildx#3708: imagetools create
+#               is broken on GHCR since v0.31.1).
+
+name: Reusable - build app image
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: App name (directory and image suffix). Used as build context.
+        required: true
+        type: string
+      platforms:
+        description: >-
+          Comma-separated target platforms, e.g. "linux/amd64,linux/arm64".
+          Parsed into a JSON array in the check job and expanded as the build matrix.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ── Gate: existence check (tag present?) ──────────────────────────────────
+  # The tag is created atomically by the merge job, so if the tag exists the
+  # image is necessarily complete. No need to inspect .manifests[] arches.
+  check:
+    name: ${{ inputs.app }} - check
+    runs-on: ubuntu-latest
+    outputs:
+      repo: ${{ steps.meta.outputs.repo }}
+      tag: ${{ steps.meta.outputs.tag }}
+      platforms_json: ${{ steps.platforms.outputs.json }}
+      should_build: ${{ steps.existence-check.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        env:
+          APP: ${{ inputs.app }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_value="$(cat "${APP}/TAG")"
+          repo="ghcr.io/${OWNER}/ket-${APP}"
+          {
+            echo "repo=${repo}"
+            echo "tag=${repo}:${tag_value}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Parse platforms into JSON array
+        id: platforms
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # "linux/amd64,linux/arm64" -> ["linux/amd64","linux/arm64"]
+          json="$(printf '%s' "$PLATFORMS" | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$"; "")))')"
+          echo "json=${json}" >> "$GITHUB_OUTPUT"
+
+      - name: Existence check (tag present?)
+        id: existence-check
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker manifest inspect "$TAG" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; skipping build." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "should_build=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${TAG} not found; will build." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "should_build=1" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Per-platform build (push-by-digest, no tag yet) ───────────────────────
+  build:
+    name: ${{ inputs.app }} - build - ${{ matrix.platform }}
+    needs: check
+    if: needs.check.outputs.should_build == '1'
+    # NOTE: do NOT use matrix.include for platform->runner mapping.
+    # If the include entry's platform value isn't in the matrix, GitHub Actions
+    # treats it as a NEW combination and spawns an unwanted extra build.
+    # Use an inline ternary instead. runs-on supports expressions.
+    runs-on: ${{ contains(matrix.platform, 'arm64') && 'ubuntu-26.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.check.outputs.platforms_json) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.app }}
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          # push=true is MANDATORY with push-by-digest:
+          # without it buildx exports locally and never pushes.
+          outputs: type=image,name=${{ needs.check.outputs.repo }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Prepare digest artifact
+        id: prep
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          PLATFORM: ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$DIGEST" ] || [ "$DIGEST" = "null" ]; then
+            echo "::error::No digest produced for ${{ inputs.app }} (${{ matrix.platform }})"
+            exit 1
+          fi
+          safe="${PLATFORM//\//-}"  # linux/amd64 -> linux-amd64 (upload-artifact v4 forbids '/')
+          mkdir -p /tmp/digest
+          printf '%s\n' "$DIGEST" > "/tmp/digest/digest-${safe}.txt"
+          echo "artifact_name=digest-${{ inputs.app }}-${safe}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${{ inputs.app }} (${{ matrix.platform }}): $DIGEST" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prep.outputs.artifact_name }}
+          path: /tmp/digest
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Merge: create the final multi-arch tag atomically ─────────────────────
+  merge:
+    name: ${{ inputs.app }} - merge
+    needs: [check, build]
+    if: needs.check.outputs.should_build == '1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx (pinned)
+        uses: docker/setup-buildx-action@v4
+        with:
+          # docker/buildx#3708: imagetools create is broken on GHCR since v0.31.1.
+          version: v0.31.0
+
+      - name: Download per-platform digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ inputs.app }}-*
+          path: digests
+          merge-multiple: true
+
+      - name: Merge multi-arch manifest
+        env:
+          REPO: ${{ needs.check.outputs.repo }}
+          TAG: ${{ needs.check.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find digests -type f -print | sort)
+          if [ "${#files[@]}" -lt 1 ]; then
+            echo "::error::No digest files found for ${{ inputs.app }}"
+            exit 1
+          fi
+          args=()
+          for f in "${files[@]}"; do
+            d="$(tr -d '[:space:]' < "$f")"
+            case "$d" in
+              sha256:*) : ;;
+              *) echo "::error::Bad digest in $f: $d"; exit 1 ;;
+            esac
+            args+=("${REPO}@${d}")
+          done
+          echo "Merging ${#files[@]} arch(s) -> ${TAG}" | tee -a "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools create -t "${TAG}" "${args[@]}"
+
+      - name: Verify merged manifest
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${TAG}" | tee -a "$GITHUB_STEP_SUMMARY"
