@@ -9,13 +9,18 @@
     self,
     nixpkgs,
   }: let
-    pkgs = nixpkgs.legacyPackages.x86_64-linux;
+    systems = ["x86_64-linux" "aarch64-linux"];
+    forAllSystems = nixpkgs.lib.genAttrs systems;
   in {
-    formatter.x86_64-linux = pkgs.alejandra;
+    formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.alejandra);
 
-    packages.x86_64-linux = {
-      pvc-backup = pkgs.callPackage ./pvc-backup.nix {};
-      pg-tool = pkgs.callPackage ./pg-tool.nix {};
-    };
+    packages = forAllSystems (
+      system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in {
+        pvc-backup = pkgs.callPackage ./pvc-backup.nix {};
+        pg-tool = pkgs.callPackage ./pg-tool.nix {};
+      }
+    );
   };
 }
