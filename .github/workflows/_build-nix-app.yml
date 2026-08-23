@@ -1,0 +1,219 @@
+# Reusable workflow: build a single nix-derived Docker image and push a
+# (multi-arch) image to GHCR.
+#
+# Flow:  check (gate)  ->  build (matrix per platform, native runners,
+#         per-arch tag push)  ->  merge (imagetools create)
+#
+# Caller passes:
+#   package:   flake package name (under nix/#packages.<system>)
+#   platforms: JSON array as a string, e.g. '["linux/amd64","linux/arm64"]'
+#
+# Conventions:
+#   - image:   imageName/imageTag are evaluated from the flake package
+#              (e.g. ghcr.io/<owner>/ket-pvc-backup:0.1.3)
+#   - build:   `nix build .#<package>` resolves to the runner's native
+#              system, so each platform builds natively (no emulation).
+#   - tags:    each platform pushes <tag>-linux-<arch> first; the final tag
+#              is created atomically by the merge job, so a partial final
+#              tag can never exist mid-build (same guarantee as _build-app.yml).
+#   - buildx:  pinned to v0.31.0 in merge (docker/buildx#3708: imagetools
+#              create is broken on GHCR since v0.31.1).
+
+name: Reusable - build nix app image
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: Flake package name (under nix/#packages.<system>).
+        required: true
+        type: string
+      platforms:
+        description: >-
+          JSON array of target platforms as a string,
+          e.g. '["linux/amd64","linux/arm64"]'. Expanded as the build matrix.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ── Gate: existence check (tag present?) ──────────────────────────────────
+  # The tag is created atomically by the merge job, so if the tag exists the
+  # image is necessarily complete. No need to inspect .manifests[] arches.
+  check:
+    name: ${{ inputs.package }} - check
+    runs-on: ubuntu-latest
+    outputs:
+      repo: ${{ steps.meta.outputs.repo }}
+      tag: ${{ steps.meta.outputs.tag }}
+      should_build: ${{ steps.existence-check.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        env:
+          PACKAGE: ${{ inputs.package }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd nix
+          meta="$(nix eval --json ".#${PACKAGE}" --apply 'p: {repo = p.imageName; tag = p.imageTag;}')"
+          repo="$(printf '%s' "$meta" | jq -r .repo)"
+          tag_value="$(printf '%s' "$meta" | jq -r .tag)"
+          {
+            echo "repo=${repo}"
+            echo "tag=${repo}:${tag_value}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Existence check (tag present?)
+        id: existence-check
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker manifest inspect "$TAG" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; skipping build." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "should_build=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${TAG} not found; will build." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "should_build=1" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Per-platform build (native runner, per-arch tag push) ─────────────────
+  build:
+    name: ${{ inputs.package }} - build - ${{ matrix.platform }}
+    needs: check
+    if: needs.check.outputs.should_build == '1'
+    # NOTE: do NOT use matrix.include for platform->runner mapping.
+    # If the include entry's platform value isn't in the matrix, GitHub Actions
+    # treats it as a NEW combination and spawns an unwanted extra build.
+    # Use an inline ternary instead. runs-on supports expressions.
+    runs-on: ${{ contains(matrix.platform, 'arm64') && 'ubuntu-26.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platforms) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `nix build .#<package>` resolves to the runner's native system:
+      # packages.x86_64-linux on amd64, packages.aarch64-linux on arm64.
+      - name: Build the Docker image with nix
+        run: |
+          cd nix
+          nix build .#${{ inputs.package }}
+
+      - name: Load image and push per-arch tag
+        id: push
+        env:
+          FULL_TAG: ${{ needs.check.outputs.tag }}
+          PLATFORM: ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker load -i nix/result
+          safe="${PLATFORM//\//-}"  # linux/arm64 -> linux-arm64
+          per_arch="${FULL_TAG}-${safe}"
+          docker tag "${FULL_TAG}" "${per_arch}"
+          docker push "${per_arch}"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${per_arch}" | cut -d@ -f2)"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "::error::No digest produced for ${{ inputs.package }} (${PLATFORM})"
+            exit 1
+          fi
+          mkdir -p /tmp/digest
+          printf '%s\n' "$digest" > "/tmp/digest/digest-${safe}.txt"
+          echo "safe=${safe}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${{ inputs.package }} (${PLATFORM}): ${per_arch} ${digest}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ inputs.package }}-${{ steps.push.outputs.safe }}
+          path: /tmp/digest
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Merge: create the final multi-arch tag atomically ─────────────────────
+  merge:
+    name: ${{ inputs.package }} - merge
+    needs: [check, build]
+    if: needs.check.outputs.should_build == '1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx (pinned)
+        uses: docker/setup-buildx-action@v4
+        with:
+          # docker/buildx#3708: imagetools create is broken on GHCR since v0.31.1.
+          version: v0.31.0
+
+      - name: Download per-platform digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ inputs.package }}-*
+          path: digests
+          merge-multiple: true
+
+      - name: Merge multi-arch manifest
+        env:
+          REPO: ${{ needs.check.outputs.repo }}
+          TAG: ${{ needs.check.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find digests -type f -print | sort)
+          if [ "${#files[@]}" -lt 1 ]; then
+            echo "::error::No digest files found for ${{ inputs.package }}"
+            exit 1
+          fi
+          args=()
+          for f in "${files[@]}"; do
+            d="$(tr -d '[:space:]' < "$f")"
+            case "$d" in
+              sha256:*) : ;;
+              *) echo "::error::Bad digest in $f: $d"; exit 1 ;;
+            esac
+            args+=("${REPO}@${d}")
+          done
+          echo "Merging ${#files[@]} arch(s) -> ${TAG}" | tee -a "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools create -t "${TAG}" "${args[@]}"
+
+      - name: Verify merged manifest
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${TAG}" | tee -a "$GITHUB_STEP_SUMMARY"

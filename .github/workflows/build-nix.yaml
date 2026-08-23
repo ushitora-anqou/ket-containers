@@ -1,98 +1,79 @@
 name: Publish Docker image built by nix to ghcr.io
 
 on:
-  pull_request:
   push:
     branches:
       - master
 
+# Granted here (not only in _build-nix-app.yml) because a called reusable
+# workflow may not request more permissions than the caller's GITHUB_TOKEN.
+# Without this, pull_request runs (whose default token is read-only) fail at
+# startup with "requesting 'packages: write', but is only allowed 'packages: read'".
+permissions:
+  contents: read
+  packages: write
+
 jobs:
+  # Discover packages and their target platforms from the flake.
+  #
+  # Platform support is declared by which systems expose the package:
+  #   packages.x86_64-linux.<pkg>   -> linux/amd64
+  #   packages.aarch64-linux.<pkg>  -> linux/arm64
+  # Adding an image = one line in nix/flake.nix. Exposing a package under a
+  # NEW system additionally needs the platform map below and the runner
+  # ternary in _build-nix-app.yml; an unmapped system fails this job loudly.
+  #
+  # Each matrix entry dispatches to the reusable workflow, which handles the
+  # existence check, per-platform build (per-arch tag push), and atomic
+  # multi-arch merge.
   get-packages:
     runs-on: ubuntu-latest
 
     outputs:
-      packages: ${{ steps.get-packages.outputs.value }}
+      matrix: ${{ steps.get-packages.outputs.matrix }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: get Nix packages
         id: get-packages
+        shell: bash
         run: |
+          set -euo pipefail
           cd nix
-          list=$(nix flake show --json | jq -c '.packages."x86_64-linux" | keys')
-          echo "value=${list}" >> $GITHUB_OUTPUT
+          # {"packages": {"x86_64-linux": {...}, "aarch64-linux": {...}}}
+          # -> {"include":[{"package":"pvc-backup",
+          #                 "platforms":"[\"linux/amd64\",\"linux/arm64\"]"}, ...]}
+          # (matrix must be an object: a bare array is rejected with
+          # "A sequence was not expected"; platforms stays a JSON array
+          # string so the reusable workflow can fromJSON it directly)
+          matrix="$(nix flake show --json | jq -c '
+            [.packages | to_entries[]
+              | .key as $system
+              | .value | keys[] as $package
+              | {package: $package, system: $system}]
+            | group_by(.package)
+            | {include: map({
+                package: .[0].package,
+                platforms: ([.[].system]
+                  | map({"x86_64-linux": "linux/amd64", "aarch64-linux": "linux/arm64"}[.]
+                    // error("unmapped system: \(.) — add it to the platform map in build-nix.yaml"))
+                  | sort | tojson)
+              })}')"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
 
-  build-and-push-image:
+  build-package:
     needs: get-packages
-
-    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
-      matrix:
-        package: ${{ fromJSON(needs.get-packages.outputs.packages) }}
+      matrix: ${{ fromJSON(needs.get-packages.outputs.matrix) }}
 
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-
-      #- uses: cachix/cachix-action@v14
-      #  with:
-      #    name: ket-containers
-      #    authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-
-      - name: Extract metadata
-        id: metadata
-        run: |
-          cd nix
-          IMAGE_NAME=$(nix eval --raw .#${{ matrix.package }}.imageName)
-          IMAGE_TAG=$(nix eval --raw .#${{ matrix.package }}.imageTag)
-          echo "tag=${IMAGE_NAME}:${IMAGE_TAG}" >> $GITHUB_OUTPUT
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if the image already exists
-        id: existence-check
-        run: |
-          if docker manifest inspect ${{ steps.metadata.outputs.tag }}; then
-            echo "b=0" >> "$GITHUB_OUTPUT"
-          else
-            echo "b=1" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: ${{ steps.existence-check.outputs.b == '1' }}
-        name: Build and push a Docker image
-        run: |
-          cd nix
-          nix build .#${{ matrix.package }}
-          docker load -i result
-          docker push ${{ steps.metadata.outputs.tag }}
-
-      - if: ${{ steps.existence-check.outputs.b == '0' }}
-        name: Build a Docker image but don't push
-        run: |
-          cd nix
-          nix build .#${{ matrix.package }}
+    uses: ./.github/workflows/_build-nix-app.yml
+    with:
+      package: ${{ matrix.package }}
+      platforms: ${{ matrix.platforms }}
+    secrets: inherit
