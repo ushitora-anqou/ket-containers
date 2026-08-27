@@ -25,7 +25,7 @@ jobs:
           - app: toolbox
             platforms: linux/amd64
           - app: alertmanager-discord
-            platforms: linux/amd64
+            platforms: linux/amd64,linux/arm64
           - app: yorksap-frontend
             platforms: linux/amd64
           - app: rsyncd
